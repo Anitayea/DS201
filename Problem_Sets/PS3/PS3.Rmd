@@ -1,0 +1,166 @@
+---
+title: "Problem Set 3"
+author: "Anita Ye - yy3557 - 001 "
+date: "Due Dec 1, 2023"
+output:
+  pdf_document: default
+header-includes: 
+  - \usepackage{tikz}
+---
+
+This homework must be turned in on Brightspace by Dec. 1, 2023. It must be your own work, and your own work only -- you must not copy anyone's work, or allow anyone to copy yours. This extends to writing code. You may consult with others, but when you write up, you must do so alone.
+
+Your homework submission must be written and submitted using Rmarkdown. No handwritten solutions will be accepted. \textbf{No zip files will be accepted.} \textbf{Make sure we can read each line of code in the pdf document.} You should submit the following:
+
+1. A compiled PDF file named yourNetID\_solutions.pdf containing your solutions to the problems.
+
+2. A .Rmd file containing the code and text used to produce your compiled pdf named yourNetID\_solutions.Rmd.
+
+
+Note that math can be typeset in Rmarkdown in the same way as Latex. Please make sure your answers are clearly structured in the Rmarkdown file:
+
+1. Label each question part
+
+2. Do not include written answers as code comments.
+
+3. The code used to obtain the answer for each question part should accompany the written answer. Comment your code!
+
+
+\newpage 
+
+
+## Question 1 (Total: 100)
+Does US military assistance strengthen or further weaken fragile and conflict-affected foreign governments? Aid may bolster state capacity and suppress violence from nonstate actors such as paramilitary groups. On the other hand, aid may be diverted to those same violent groups. To answer the question, Dube and Naidu (2015)(https://www.journals.uchicago.edu/doi/10.1086/679021?mobileUi=0) leverage changes in the allocation of US military aid to Colombian military bases. They test whether Colombian municipailites in which military bases are located have more or less paramilitary violence when the level of U.S. miliary aid increases, relative to Colombian municipalities in which miliary bases are not located. 
+
+For this problem, you will need the `bases_replication_file.dta' file. The variables you will need are:
+
+- parattq - DV here is paramilitary attacks
+- bases6 - indicator variable whether or not there is a base in the municipality
+- lrmilnar col - (logged) U.S. military and narcotics aid to Colombia
+- bases6xlrmilnar col - the treatment i.e., the interaction between the level of U.S. military and narcotics aid and whether or not there is a base in the municipality
+- lnnewpop - is log of population
+
+### Part a (60 points)
+
+The treatment in this case is a continuous 'intensity' variable that changes over time. The authors use the interaction between the level of U.S. military and narcotics aid and whether a base exists in a municipality. How many units are in the 'control' group (no bases)? Does the bases variable change over time or is it a unit-constant factor? How about the logged military aid variable, does it change across units for a given year? What do the authors seem to be assuming about how military aid is allocated?
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(haven)
+library(estimatr) # for lm with robust se : ?lm_robust()
+
+# Load bases data
+bases <- haven::read_dta("bases_replication_final.dta")
+
+# How many observations are in the ``no bases group"
+no_bases_count <- sum(bases$bases6 == 0, na.rm = TRUE)
+print(paste("Number of observations in the no bases group:", no_bases_count))
+
+```
+
+```{r}
+control_group_municipalities <- bases %>%
+group_by(municipality) %>%
+summarize(all_no_bases = all(bases6 == 0)) %>%
+filter(all_no_bases) %>%
+nrow()
+#print(head(bases))
+print(paste("Number of unique municipalities in the control group:", control_group_municipalities))
+```
+```{r}
+## How about each of them?
+bases6_dist <- bases %>% count(year, bases6)
+print(bases6_dist)
+```
+
+```{r}
+## How many municipalities do we have
+lrmilnar_col_dist <- bases %>% count(year, lrmilnar_col)
+print(lrmilnar_col_dist)
+
+```
+```{r}
+# Check does the bases variable change over time.
+bases_over_time <- bases %>%
+group_by(year) %>%
+summarize(mean_bases = mean(bases6))
+print(bases_over_time)
+```
+```{r}
+unique_aid_by_year <- bases %>%
+group_by(year) %>%
+summarize(unique_aid = n_distinct(`lrmilnar_col`))
+print(unique_aid_by_year)
+```
+```{r}
+values_by_year <- bases %>%
+group_by(year) %>%
+summarise(lrmilnar_col_value = list(unique(lrmilnar_col)))
+values_by_year$numeric_value <- sapply(values_by_year$lrmilnar_col_value, function(x) as.numeric(x))
+print(values_by_year)
+```
+The dataset includes 16,272 observations in the 'control' group, representing municipalities without military bases, and there are 936 unique municipalities, 904 of them with no bases.
+
+The bases6 variable, indicating the presence of a military base, is unit-constant, meaning the status of a municipality having a base does not change over time. This constancy is further evidenced by the consistent count of 904 municipalities without a base (bases6 = 0) and 32 with a base (bases6 = 1) each year. 
+
+Additionally, the lrmilnar_col variable, representing logged U.S. military and narcotics aid to Colombia, varies annually but remains constant across all municipalities within a single year. This pattern suggests that aid distribution is influenced by specific characteristics of the municipalities, like the intensity of paramilitary activities or alignment with U.S. interests. 
+
+The study hypothesizes that fluctuations in U.S. military and narcotics aid predominantly affect municipalities with military bases, potentially leading to different levels of paramilitary violence. By comparing paramilitary attacks in municipalities with and without bases against changes in military aid levels, the study aims to isolate the direct impact of this aid on paramilitary violence. The assumption is that changes in military aid are more pronounced in areas with bases, allowing for an analysis of the localized effects of military aid while controlling for other factors.
+
+### Part b (20 points)
+The authors use a common empirical strategy called two-way fixed effects to estimate the average treatment effect of military aid. The model they estimate includes fixed effects for both time periods and units (and includes logged population as an additional covariate):
+
+$$ Y_{it} = \gamma_t + \alpha_i + \tau D_{it} + \beta X_{it} + \epsilon_{it}$$ 
+What assumptions are the authors making in order to identify the treatment effect of military aid?
+
+The study assumes constant treatment effects, proposing that the effect of the treatment (military aid) on the outcome (paramilitary violence) is consistent across different units and time periods. This is expressed mathematically as E[Yi(1) - Yi(0)|Xi = x] = E[Yi(1) - Yi(0)|Xi = w], indicating that the average treatment effect remains constant over time. Furthermore, the study makes a parallel trends assumption, which suggests that any selection bias present at different times is identical. Specifically, it's presumed that the trends in potential outcomes under control conditions from one time period to the next in the treated group mirror those observed in the control group. The model incorporates time-trend shocks (gamma t) and unit-level intercept shifts (alpha i) to adjust for potential confounding factors.
+
+The authors hypothesize that without U.S. military aid, the trends in paramilitary violence in Colombian municipalities with and without military bases would have been similar over time. This premise is crucial for attributing changes in violence directly to variations in military aid. The model includes time fixed effects (gamma t), addressing factors that change over time but are uniform across all municipalities, like national policies or global events. Additionally, unit fixed effects (alpha i) account for unchanging, municipality-specific characteristics such as geographic location or historical violence levels. The study assumes that all relevant variables influencing both military aid distribution and paramilitary violence levels are either incorporated in the model or captured by the fixed effects, including variables like logged population. The allocation of military aid is considered exogenous, meaning it's not influenced by unobserved factors that also affect paramilitary violence levels. The assumption extends to the impact of military aid, which is presumed consistent across different municipalities and time periods, although the magnitude of this effect might vary. Lastly, the study assumes no interference between units, implying that the level of paramilitary violence in one municipality is not influenced by the military aid received by another municipality.
+
+### Part c (20 points)
+
+Using the two-way fixed effects estimator, estimate the effect of U.S. military and narcotics aid on the number of paramilitary attacks, including log of population as a covariate. The two sets of fixed effects are for municipality (municipality) and year (year). Cluster your standard errors at the unit level (see the cluster argument in lm_robust. Report a 95% confidence interval for your estimate and interpret your results.
+
+```{r}
+#?lm_robust (set se_type to "CR0")
+# Fit Regression using lm_robust 
+
+# Summarize
+# Load necessary library
+library(estimatr)
+
+# Fit Regression using lm_robust
+model <- lm_robust(
+  paratt ~ bases6xlrmilnar_col + lnnewpop + factor(municipality) + factor(year),
+  data = bases,
+  clusters = bases$municipality,
+  se_type = "CR0"
+)
+
+
+# Summarize the results
+coefficients_summary <- summary(model)$coefficients[c("bases6xlrmilnar_col", "lnnewpop"), ]
+
+# 95% Confidence Interval
+confint_model <- confint(model)[c("bases6xlrmilnar_col", "lnnewpop"), ]
+
+print("Coefficients Summary:")
+print(coefficients_summary)
+print("Confidence Intervals:")
+print(confint_model)
+
+# 95% Confidence Interval
+
+#confint(model, level = 0.95)
+
+```
+In the conducted analysis utilizing a two-way fixed effects model, empirical evidence is presented on the relationship between U.S. military and narcotics aid and paramilitary violence in Colombian municipalities. The statistical analysis estimates that an incremental increase in the logged quantity of military aid in municipalities with military bases correlates with an elevation of 0.1503 in the average number of paramilitary attacks. This effect is statistically significant, as evidenced by a 95% confidence interval ranging from 0.0324 to 0.2682, excluding zero, thereby leading to the rejection of the null hypothesis at the alhpa = 0.05 significance level.
+
+The interaction term coefficient of 0.1503 for bases6xlrmilnar_col is particularly revealing. It demonstrates a positive and significant association between the joint impact of U.S. military and narcotics aid and the presence of military bases on the frequency of paramilitary attacks. This association is substantiated by a robust standard error of 0.0601, a t-value of 2.502, and a p-value of 0.0125. Furthermore, the analysis also identifies a statistically significant positive correlation between the population size (indicated by the coefficient of 0.1178 for lnnewpop) and the incidence of paramilitary attacks.
+
+These empirical findings imply that while the primary objective of U.S. military aid is to decrease violence, its interaction with specific local variables, such as the presence of military bases, can yield paradoxical outcomes. This highlights the complexities inherent in the effects of foreign aid in conflict zones, underscoring the need for nuanced understanding and evaluation of such interventions.
+```{r}
+tidy(lm_robust(paratt~bases6+lrmilnar_col+bases6xlrmilnar_col+lnnewpop, data = bases, fixed_effects= ~ factor(year)+factor(municipality), 
+               se_type = "CR0",
+               clusters =municipality))
+```
